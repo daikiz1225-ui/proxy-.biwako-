@@ -6,28 +6,74 @@ export default async function handler(req, res) {
     const targetUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
     const proxyOrigin = `${req.headers["x-forwarded-proto"]}://${req.headers["host"]}`;
 
-    const response = await fetch(targetUrl.href, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    // 1. リクエストヘッダーの偽装
+    const headers = new Headers();
+    const forbiddenHeaders = ['host', 'connection', 'referer', 'origin'];
+    
+    Object.keys(req.headers).forEach(key => {
+      if (!forbiddenHeaders.includes(key.toLowerCase())) {
+        headers.set(key, req.headers[key]);
       }
     });
 
-    let contentType = response.headers.get("content-type") || "";
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("X-Frame-Options", "ALLOWALL"); // iframe拒否を潰す
+    // YouTubeが拒否しないように正規のヘッダーをセット
+    headers.set("Referer", targetUrl.origin + "/");
+    headers.set("Origin", targetUrl.origin);
+    headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
+    // 2. ターゲットへリクエスト
+    const response = await fetch(targetUrl.href, {
+      method: req.method,
+      headers: headers,
+      redirect: 'manual' // リダイレクトを自分で処理してプロキシを通すため
+    });
+
+    // 3. レスポンスヘッダーの処理
+    res.status(response.status);
+    
+    // 全ヘッダーをコピー
+    response.headers.forEach((value, key) => {
+      // セキュリティ制限を外す
+      if (!['content-encoding', 'content-length', 'x-frame-options', 'content-security-policy'].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
+
+    res.setHeader("X-Frame-Options", "ALLOWALL");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    // 4. Cookieの中継と書き換え
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      const modifiedCookies = setCookie.split(/,(?=[^;]+=[^;]+)/).map(cookie => 
+        cookie.replace(/Domain=[^;]+;?/gi, '') // ドメイン制限解除
+              .replace(/Secure/gi, '')        // HTTPでも通るように
+              .replace(/SameSite=(Lax|Strict)/gi, 'SameSite=None')
+      );
+      res.setHeader('Set-Cookie', modifiedCookies);
+    }
+
+    // 5. リダイレクト対応
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (location) {
+        const redirUrl = new URL(location, targetUrl.origin).href;
+        return res.redirect(`/proxy?url=${encodeURIComponent(redirUrl)}`);
+      }
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+
+    // HTMLの書き換えロジック
     if (contentType.includes("text/html")) {
       let html = await response.text();
 
-      // --- 1. インジェクトスクリプト（JSレベルの防御） ---
+      // JSインジェクション
       const injection = `
 <base href="${targetUrl.origin}/">
 <script>
-  // iframe脱出防止
   window.self = window.top;
   window.parent = window.self;
-
-  // fetchをプロキシ経由に
   const orgFetch = window.fetch;
   window.fetch = function() {
     if (typeof arguments[0] === 'string' && !arguments[0].includes(location.host)) {
@@ -39,23 +85,17 @@ export default async function handler(req, res) {
 `;
       html = html.replace('<head>', '<head>' + injection);
 
-      // --- 2. 【超強力】全ての絶対URLをプロキシ経由に置換 ---
-      // サイト内のあらゆる "https://..." を "/proxy?url=https://..." に書き換える
+      // 強力なURL置換
       const proxyBase = `${proxyOrigin}/proxy?url=`;
       html = html.replace(/https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g, (match) => {
-        // 自分のドメインや、一部の除外ドメイン（google等）は置換しない
-        if (match.includes(req.headers["host"])) return match;
+        if (match.includes(req.headers["host"]) || match.includes('gstatic.com')) return match;
         return `${proxyBase}${encodeURIComponent(match)}`;
       });
-
-      // iframe脱出用のJSコード（window.top.locationなど）を無力化
-      html = html.replace(/top\.location/g, 'self.location');
-      html = html.replace(/window\.top/g, 'window.self');
 
       return res.send(html);
     }
 
-    // 画像やCSSはそのまま
+    // バイナリデータ（画像・動画）の転送
     const buffer = await response.arrayBuffer();
     res.send(Buffer.from(buffer));
 
