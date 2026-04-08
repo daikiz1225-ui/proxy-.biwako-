@@ -9,52 +9,53 @@ export default async function handler(req, res) {
     const response = await fetch(targetUrl.href, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
       }
     });
 
-    const contentType = response.headers.get("content-type") || "";
+    let contentType = response.headers.get("content-type") || "";
+    
+    // 安全のためにヘッダーを掃除
     res.setHeader("Content-Type", contentType);
+    res.setHeader("X-Frame-Options", "ALLOWALL"); // iframe拒否を解除
+    res.setHeader("Access-Control-Allow-Origin", "*");
 
     if (contentType.includes("text/html")) {
       let html = await response.text();
 
-      // --- 1. <head>の直後にジャックスクリプトと<base>を挿入 ---
+      // --- 1. インジェクトスクリプト（JSジャック & 脱出防止） ---
       const injection = `
 <base href="${targetUrl.origin}/">
 <script>
-  // 1. fetchを乗っ取る
+  // iframe脱出コード(window.top = window.self)の無効化
+  window.self = window.top;
+  window.parent = window.self;
+
+  // fetchのジャック
   const originalFetch = window.fetch;
   window.fetch = function() {
     let arg = arguments[0];
-    if (typeof arg === 'string' && !arg.includes('${proxyOrigin}')) {
-      arguments[0] = '${proxyOrigin}/proxy?url=' + encodeURIComponent(new URL(arg, location.href).href);
+    if (typeof arg === 'string' && !arg.includes(location.host)) {
+      arguments[0] = '${proxyOrigin}/proxy?url=' + encodeURIComponent(new URL(arg, '${targetUrl.origin}').href);
     }
     return originalFetch.apply(this, arguments);
   };
 
-  // 2. XMLHttpRequest(古い通信方式)を乗っ取る
-  const originalOpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function() {
-    if (!arguments[1].includes('${proxyOrigin}')) {
-      arguments[1] = '${proxyOrigin}/proxy?url=' + encodeURIComponent(new URL(arguments[1], location.href).href);
-    }
-    originalOpen.apply(this, arguments);
-  };
-
-  // 3. 画面遷移を監視して、無理やりプロキシを通す
+  // リンククリックのジャック
   document.addEventListener('click', e => {
     const a = e.target.closest('a');
-    if (a && a.href && !a.href.includes('${proxyOrigin}')) {
+    if (a && a.href && !a.href.includes(location.host)) {
       e.preventDefault();
       window.location.href = '${proxyOrigin}/proxy?url=' + encodeURIComponent(a.href);
     }
   }, true);
 </script>
 `;
+      // <head>の直後に差し込む。同時にサイト側のiframe脱出コードを無効化。
       html = html.replace('<head>', '<head>' + injection);
+      html = html.replace(/window\.top/g, 'window.self');
+      html = html.replace(/top\.location/g, 'self.location');
 
-      // --- 2. HTML内の既存リンクを書き換え ---
+      // --- 2. 既存のhref/srcを全置換 ---
       const proxyBase = `${proxyOrigin}/proxy?url=`;
       html = html.replace(/(href|src)="(https?:\/\/[^"]+)"/g, (match, p1, p2) => {
         if (p2.includes(req.headers["host"])) return match;
@@ -64,7 +65,7 @@ export default async function handler(req, res) {
       return res.send(html);
     }
 
-    // HTML以外はそのまま
+    // HTML以外はバイナリでそのまま返す
     const buffer = await response.arrayBuffer();
     res.send(Buffer.from(buffer));
 
