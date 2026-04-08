@@ -1,1 +1,31 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Academic Research Portal</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f2f5; }
+        .box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 80%; max-width: 500px; }
+        input { width: 100%; padding: 12px; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>リサーチポータル</h2>
+        <p>閲覧したいサイトのURLを入力してください。</p>
+        <input type="text" id="targetUrl" placeholder="https://www.youtube.com">
+        <button onclick="launch()">サイトを開く</button>
+    </div>
 
+    <script>
+        function launch() {
+            const url = document.getElementById('targetUrl').value;
+            if (url) {
+                window.location.href = `/proxy?url=${encodeURIComponent(url)}`;
+            }
+        }
+    </script>
+</body>
+</html>
