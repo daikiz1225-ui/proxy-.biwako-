@@ -3,20 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Research Portal v2</title>
+    <title>Advanced Research Portal</title>
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; font-family: sans-serif; }
         #nav-bar { height: 50px; background: #333; display: flex; align-items: center; padding: 0 15px; border-bottom: 2px solid #444; }
         #urlInput { flex-grow: 1; margin: 0 10px; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
         button { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #0056b3; }
         #proxyFrame { width: 100%; height: calc(100% - 50px); border: none; background: white; }
     </style>
 </head>
 <body>
     <div id="nav-bar">
-        <button onclick="history.back()">←</button>
-        <input type="text" id="urlInput" placeholder="https://google.com" onkeydown="if(event.key==='Enter') launch()">
+        <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launch()">
         <button onclick="launch()">閲覧開始</button>
     </div>
     <iframe id="proxyFrame" name="proxyFrame"></iframe>
@@ -24,30 +22,36 @@
     <script>
         const frame = document.getElementById('proxyFrame');
         const input = document.getElementById('urlInput');
+        let lastKnownTarget = "";
 
         function launch() {
             let target = input.value;
             if (!target) return;
             if (!target.startsWith('http')) target = 'https://' + target;
+            lastKnownTarget = target;
             frame.src = `/proxy?url=${encodeURIComponent(target)}`;
         }
 
-        // --- 強制引き戻しロジック ---
+        // --- 脱出を検知して無理やり引き戻すコアロジック ---
         setInterval(() => {
             try {
-                // iframeの中身のURLを確認
-                const currentHref = frame.contentWindow.location.href;
-                const myOrigin = window.location.origin;
-
-                // もしプロキシURLじゃなくなっていたら（脱出したら）
-                if (currentHref !== "about:blank" && !currentHref.startsWith(myOrigin)) {
-                    console.warn("脱出検知。引き戻します。");
-                    frame.src = `/proxy?url=${encodeURIComponent(currentHref)}`;
+                // 同じドメイン（プロキシ内）にいればここが通る
+                const currentUrl = frame.contentWindow.location.href;
+                if (currentUrl !== "about:blank" && !currentUrl.includes(window.location.host)) {
+                    throw new Error("脱出検知");
                 }
             } catch (e) {
-                // セキュリティエラー（Cross-Origin）が出た＝プロキシ外へ逃げた証拠
-                // ここでURLは取得できないが、逃げたことは確実なので
-                // 最後にlaunchしたURLを元に再読み込みさせるなどの処理が可能
+                // ここに来る＝ドメインが外れて親から子が見えなくなった（脱出成功してしまった）
+                console.warn("プロキシ脱出を検知。再捕捉します。");
+                
+                // 本当は移動先のURLを知りたいが、ブラウザ制限で読めないため
+                // リンクの書き換え（proxy.js）がしっかり動くことが前提。
+                // 完全に外れてしまった場合は、inputにあるURLを再度読み込む。
+                if (lastKnownTarget) {
+                    // frame.src = `/proxy?url=${encodeURIComponent(lastKnownTarget)}`; 
+                    // 自動で戻すと無限ループの危険があるため、ログに出すか、
+                    // 特定の条件下でのみ再実行させるのが安全。
+                }
             }
         }, 2000);
     </script>
