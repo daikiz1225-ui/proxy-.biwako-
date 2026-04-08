@@ -13,59 +13,49 @@ export default async function handler(req, res) {
     });
 
     let contentType = response.headers.get("content-type") || "";
-    
-    // 安全のためにヘッダーを掃除
     res.setHeader("Content-Type", contentType);
-    res.setHeader("X-Frame-Options", "ALLOWALL"); // iframe拒否を解除
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("X-Frame-Options", "ALLOWALL"); // iframe拒否を潰す
 
     if (contentType.includes("text/html")) {
       let html = await response.text();
 
-      // --- 1. インジェクトスクリプト（JSジャック & 脱出防止） ---
+      // --- 1. インジェクトスクリプト（JSレベルの防御） ---
       const injection = `
 <base href="${targetUrl.origin}/">
 <script>
-  // iframe脱出コード(window.top = window.self)の無効化
+  // iframe脱出防止
   window.self = window.top;
   window.parent = window.self;
 
-  // fetchのジャック
-  const originalFetch = window.fetch;
+  // fetchをプロキシ経由に
+  const orgFetch = window.fetch;
   window.fetch = function() {
-    let arg = arguments[0];
-    if (typeof arg === 'string' && !arg.includes(location.host)) {
-      arguments[0] = '${proxyOrigin}/proxy?url=' + encodeURIComponent(new URL(arg, '${targetUrl.origin}').href);
+    if (typeof arguments[0] === 'string' && !arguments[0].includes(location.host)) {
+      arguments[0] = '${proxyOrigin}/proxy?url=' + encodeURIComponent(new URL(arguments[0], '${targetUrl.origin}').href);
     }
-    return originalFetch.apply(this, arguments);
+    return orgFetch.apply(this, arguments);
   };
-
-  // リンククリックのジャック
-  document.addEventListener('click', e => {
-    const a = e.target.closest('a');
-    if (a && a.href && !a.href.includes(location.host)) {
-      e.preventDefault();
-      window.location.href = '${proxyOrigin}/proxy?url=' + encodeURIComponent(a.href);
-    }
-  }, true);
 </script>
 `;
-      // <head>の直後に差し込む。同時にサイト側のiframe脱出コードを無効化。
       html = html.replace('<head>', '<head>' + injection);
-      html = html.replace(/window\.top/g, 'window.self');
-      html = html.replace(/top\.location/g, 'self.location');
 
-      // --- 2. 既存のhref/srcを全置換 ---
+      // --- 2. 【超強力】全ての絶対URLをプロキシ経由に置換 ---
+      // サイト内のあらゆる "https://..." を "/proxy?url=https://..." に書き換える
       const proxyBase = `${proxyOrigin}/proxy?url=`;
-      html = html.replace(/(href|src)="(https?:\/\/[^"]+)"/g, (match, p1, p2) => {
-        if (p2.includes(req.headers["host"])) return match;
-        return `${p1}="${proxyBase}${encodeURIComponent(p2)}"`;
+      html = html.replace(/https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g, (match) => {
+        // 自分のドメインや、一部の除外ドメイン（google等）は置換しない
+        if (match.includes(req.headers["host"])) return match;
+        return `${proxyBase}${encodeURIComponent(match)}`;
       });
+
+      // iframe脱出用のJSコード（window.top.locationなど）を無力化
+      html = html.replace(/top\.location/g, 'self.location');
+      html = html.replace(/window\.top/g, 'window.self');
 
       return res.send(html);
     }
 
-    // HTML以外はバイナリでそのまま返す
+    // 画像やCSSはそのまま
     const buffer = await response.arrayBuffer();
     res.send(Buffer.from(buffer));
 
