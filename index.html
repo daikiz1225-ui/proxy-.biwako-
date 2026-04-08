@@ -3,20 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Research Portal v3</title>
+    <title>Academic Research Portal v4</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: white; font-family: sans-serif; }
-        #nav-bar { height: 50px; background: #333; display: flex; align-items: center; padding: 0 15px; border-bottom: 2px solid #444; }
-        #urlInput { flex-grow: 1; margin: 0 10px; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
-        button { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        #proxyFrame { width: 100%; height: calc(100% - 50px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0f0f0f; font-family: 'Roboto', sans-serif; color: white; }
+        #nav-bar { height: 56px; background: #202020; display: flex; align-items: center; padding: 0 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+        #urlInput { flex-grow: 1; margin: 0 12px; padding: 10px; border-radius: 20px; border: 1px solid #333; background: #121212; color: #fff; font-size: 14px; outline: none; }
+        #urlInput:focus { border: 1px solid #3ea6ff; }
+        button { padding: 8px 16px; background: #3ea6ff; color: #000; border: none; border-radius: 18px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        button:hover { background: #65b8ff; }
+        #proxyFrame { width: 100%; height: calc(100% - 56px); border: none; background: white; }
     </style>
 </head>
 <body>
     <div id="nav-bar">
-        <button onclick="frame.contentWindow.history.back()">←</button>
+        <button onclick="frame.contentWindow.history.back()">Back</button>
         <input type="text" id="urlInput" placeholder="https://www.youtube.com" onkeydown="if(event.key==='Enter') launch()">
-        <button onclick="launch()">閲覧開始</button>
+        <button onclick="launch()">Launch</button>
     </div>
     <iframe id="proxyFrame" name="proxyFrame"></iframe>
 
@@ -31,17 +33,22 @@
             frame.src = `/proxy?url=${encodeURIComponent(target)}`;
         }
 
-        // 脱出監視
+        // iframe内の脱出を高精度で監視
         setInterval(() => {
             try {
                 const currentUrl = frame.contentWindow.location.href;
-                if (currentUrl !== "about:blank" && !currentUrl.includes(window.location.host)) {
+                const myHost = window.location.host;
+
+                // about:blankでなく、自分のドメインが含まれていない場合は脱出とみなす
+                if (currentUrl !== "about:blank" && !currentUrl.includes(myHost)) {
+                    console.warn("Escape detected. Redirecting back to proxy...");
                     frame.src = `/proxy?url=${encodeURIComponent(currentUrl)}`;
                 }
             } catch (e) {
-                // セキュリティエラー時は何もしない（書き換えが効いているはず）
+                // セキュリティエラー(Cross-Origin)が出る＝ドメインが外れた証拠
+                // ここではURLを読み取れないため、自動リダイレクトはapi/proxy.jsの書き換えに任せる
             }
-        }, 3000);
+        }, 2000);
     </script>
 </body>
 </html>
