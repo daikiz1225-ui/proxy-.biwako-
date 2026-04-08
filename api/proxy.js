@@ -20,6 +20,9 @@ export default async function handler(req, res) {
     headers.set("Referer", targetUrl.origin + "/");
     headers.set("Origin", targetUrl.origin);
     headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+　　headers.set("sec-ch-ua", '"Not A;Brand";v="99", "Chromium";v="120", "Google Chrome";v="120"');
+headers.set("sec-ch-ua-mobile", "?0");
+headers.set("sec-ch-ua-platform", '"Windows"');
 
     // 2. ターゲットへリクエスト
     const response = await fetch(targetUrl.href, {
