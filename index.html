@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>My Web Proxy</title></head>
+<body style="font-family:sans-serif; text-align:center; padding-top:100px;">
+  <h1>Web Proxy Portal</h1>
+  <input type="text" id="url" placeholder="https://google.com" style="width:300px; padding:10px;">
+  <button onclick="go()" style="padding:10px;">閲覧</button>
+  <script>
+    function go() {
+      const val = document.getElementById('url').value;
+      if(val) window.location.href = `/api/proxy?url=${encodeURIComponent(val)}`;
+    }
+  </script>
+</body>
+</html>
