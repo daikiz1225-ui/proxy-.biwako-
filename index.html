@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Research Portal</title>
+    <title>Advanced Research Portal v3</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: white; font-family: sans-serif; }
         #nav-bar { height: 50px; background: #333; display: flex; align-items: center; padding: 0 15px; border-bottom: 2px solid #444; }
         #urlInput { flex-grow: 1; margin: 0 10px; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; }
         button { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
@@ -14,7 +14,8 @@
 </head>
 <body>
     <div id="nav-bar">
-        <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launch()">
+        <button onclick="frame.contentWindow.history.back()">←</button>
+        <input type="text" id="urlInput" placeholder="https://www.youtube.com" onkeydown="if(event.key==='Enter') launch()">
         <button onclick="launch()">閲覧開始</button>
     </div>
     <iframe id="proxyFrame" name="proxyFrame"></iframe>
@@ -22,38 +23,25 @@
     <script>
         const frame = document.getElementById('proxyFrame');
         const input = document.getElementById('urlInput');
-        let lastKnownTarget = "";
 
         function launch() {
             let target = input.value;
             if (!target) return;
             if (!target.startsWith('http')) target = 'https://' + target;
-            lastKnownTarget = target;
             frame.src = `/proxy?url=${encodeURIComponent(target)}`;
         }
 
-        // --- 脱出を検知して無理やり引き戻すコアロジック ---
+        // 脱出監視
         setInterval(() => {
             try {
-                // 同じドメイン（プロキシ内）にいればここが通る
                 const currentUrl = frame.contentWindow.location.href;
                 if (currentUrl !== "about:blank" && !currentUrl.includes(window.location.host)) {
-                    throw new Error("脱出検知");
+                    frame.src = `/proxy?url=${encodeURIComponent(currentUrl)}`;
                 }
             } catch (e) {
-                // ここに来る＝ドメインが外れて親から子が見えなくなった（脱出成功してしまった）
-                console.warn("プロキシ脱出を検知。再捕捉します。");
-                
-                // 本当は移動先のURLを知りたいが、ブラウザ制限で読めないため
-                // リンクの書き換え（proxy.js）がしっかり動くことが前提。
-                // 完全に外れてしまった場合は、inputにあるURLを再度読み込む。
-                if (lastKnownTarget) {
-                    // frame.src = `/proxy?url=${encodeURIComponent(lastKnownTarget)}`; 
-                    // 自動で戻すと無限ループの危険があるため、ログに出すか、
-                    // 特定の条件下でのみ再実行させるのが安全。
-                }
+                // セキュリティエラー時は何もしない（書き換えが効いているはず）
             }
-        }, 2000);
+        }, 3000);
     </script>
 </body>
 </html>
